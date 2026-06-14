@@ -32,15 +32,34 @@
 
 ### 3. Определение доменов и границы контекстов
 
-**Домен «Управление устройствами» (Device Management)**  
-Отвечает за учёт устройств умного дома: регистрация, изменение и удаление датчиков, привязка к локации, управление статусом. В целевом виде — удалённое включение и выключение отопления. Данные: метаданные устройства, команды управления.
+На [диаграмме контекста (C4)](schemas/Context.puml) система «Тёплый дом» представлена как единый монолит, но внутри него выделяются два bounded context с разными ответственностями и внешними связями.
 
-**Домен «Мониторинг температуры» (Temperature Telemetry)**  
-Отвечает за получение и представление актуальных показаний температуры (в том числе через внешний `temperature-api`) по датчикам и локациям.
+**Домен «Управление устройствами» (Device Management)**
 
-**Связь контекстов:** контекст телеметрии использует идентификатор и локацию датчика из контекста устройств.
+- **На диаграмме:** ядро монолита «Тёплый дом»; взаимодействие с **Пользователем** (управление отоплением) и с внешней системой **«Датчики и модули управления отоплением»** (отправка команд по HTTP).
+- **Ответственность:** учёт устройств умного дома — регистрация, изменение и удаление датчиков, привязка к локации, управление статусом. В целевом виде — удалённое включение и выключение отопления.
+- **Данные:** метаданные устройства (идентификатор, тип, локация, статус), команды управления.
+- **Граница контекста:** всё, что относится к жизненному циклу датчика и управлению отоплением, включая исходящие команды к физическим устройствам.
 
-**Реализация в монолите:** оба контекста реализованы в одном приложении `smart_home` без явного разделения модулей — граница проектная, для перехода к микросервисам.
+**Домен «Мониторинг температуры» (Temperature Telemetry)**
+
+- **На диаграмме:** та же система-монолит; взаимодействие с **Пользователем** (просмотр температуры) и с внешней системой **Temperature API** (запрос показаний по HTTP).
+- **Ответственность:** получение и представление актуальных показаний температуры по датчикам и локациям.
+- **Данные:** значение температуры, единица измерения, метка времени, статус датчика — агрегируются из внешнего API, а не хранятся как первичный источник в монолите.
+- **Граница контекста:** всё, что связано с чтением и обогащением ответов телеметрией; не включает CRUD-операции над устройствами.
+
+**Связь контекстов и актёров**
+
+| Элемент диаграммы | Device Management | Temperature Telemetry |
+|---|---|---|
+| Пользователь | Управляет отоплением (HTTPS/REST) | Просматривает температуру (HTTPS/REST) |
+| Монолит «Тёплый дом» | Хранит датчики в PostgreSQL, отдаёт REST API | Обогащает ответы данными из Temperature API |
+| Датчики и модули управления | Команды управления (HTTP) | — |
+| Temperature API | — | Запрос показаний (HTTP) |
+
+Контекст телеметрии использует идентификатор и локацию датчика из контекста устройств: при запросе списка или карточки датчика монолит сначала читает метаданные из БД, затем запрашивает температуру во внешнем API.
+
+**Реализация в монолите (As-Is):** оба контекста реализованы в одном приложении `smart_home` (Go + PostgreSQL) без явного разделения модулей — граница проектная, зафиксирована для последующего выделения в отдельные микросервисы. На диаграмме контекста это отражено одним блоком «Монолитное приложение «Тёплый дом»» с двумя исходящими интеграциями к разным внешним системам.
 
 ### 4. Проблемы монолитного решения
 
@@ -59,84 +78,102 @@
 
 **Диаграмма контейнеров (Containers)**
 
-Добавьте диаграмму.
+[Диаграмма контейнеров «Тёплый дом» (To-Be)](schemas/Containers.puml)
 
 **Диаграмма компонентов (Components)**
 
-Добавьте диаграмму для каждого из выделенных микросервисов.
+- [Device Management Service](schemas/Components-DeviceManagement.puml)
+- [Temperature Telemetry Service](schemas/Components-TemperatureTelemetry.puml)
 
 **Диаграмма кода (Code)**
 
-Добавьте одну диаграмму или несколько.
+- [Получение списка датчиков с актуальной температурой — sequence](schemas/Code-GetSensorsWithTemperature.puml)
+- [Доменная модель Device Management Service — class](schemas/Code-DeviceManagementClasses.puml)
 
 # Задание 3. Разработка ER-диаграммы
 
-Добавьте сюда ER-диаграмму. Она должна отражать ключевые сущности системы, их атрибуты и тип связей между ними.
+[ER-диаграмма экосистемы «Тёплый дом»](schemas/ER-Diagram.puml)
+
+### Сущности и атрибуты
+
+| Сущность | Ключевые атрибуты | Сервис / БД |
+|---|---|---|
+| **User** | id, email, full_name, password_hash, created_at | Device Management / PostgreSQL |
+| **House** | id, user_id (FK), name, address, created_at | Device Management / PostgreSQL |
+| **DeviceType** | id, code, name, unit | Device Management / PostgreSQL |
+| **Module** | id, house_id (FK), serial_number, model, status, created_at | Device Management / PostgreSQL |
+| **Device** | id, type_id (FK), house_id (FK), module_id (FK), name, serial_number, location, status, created_at, updated_at | Device Management / PostgreSQL |
+| **TelemetryData** | id, device_id (FK), value, unit, recorded_at, source | Temperature Telemetry / MongoDB |
+
+### Связи
+
+| Связь | Тип | Описание |
+|---|---|---|
+| User — House | 1:N | Один пользователь может владеть несколькими домами; каждый дом принадлежит одному пользователю |
+| House — Device | 1:N | Один дом содержит несколько устройств; каждое устройство привязано к одному дому |
+| House — Module | 1:N | Один дом может иметь несколько модулей управления; каждый модуль установлен в одном доме |
+| DeviceType — Device | 1:N | Один тип (температура, отопление) может применяться к многим устройствам |
+| Module — Device | 1:N | Один модуль управления может обслуживать несколько устройств; связь опциональна (module_id nullable) |
+| Device — TelemetryData | 1:N | Одно устройство генерирует множество записей телеметрии |
 
 # Задание 4. Создание и документирование API
 
 ### 1. Тип API
 
-Укажите, какой тип API вы будете использовать для взаимодействия микросервисов. Объясните своё решение.
+| Взаимодействие | Тип API | Обоснование |
+|---|---|---|
+| Пользователь → API Gateway → микросервисы | **REST (OpenAPI)** | Синхронные запросы: клиенту нужен немедленный ответ (список устройств, показание температуры, команда отопления) |
+| Telemetry Service → Device Management | **REST (OpenAPI)** | Синхронный запрос метаданных устройства (id, location) при cache miss |
+| Device Management → Temperature Telemetry | **REST (OpenAPI)** | Синхронная агрегация показаний в API Gateway |
+| Device Management → Temperature Telemetry | **AsyncAPI (RabbitMQ)** | Асинхронные доменные события (DeviceCreated / Updated / Deleted); подписчику не нужен немедленный ответ, достаточно eventual consistency для инвалидации кэша |
 
 ### 2. Документация API
 
-Здесь приложите ссылки на документацию API для микросервисов, которые вы спроектировали в первой части проектной работы. Для документирования используйте Swagger/OpenAPI или AsyncAPI.
+**Device Management Service (OpenAPI)**
+
+- [device-management-openapi.yaml](schemas/api/device-management-openapi.yaml)
+
+| Метод | Эндпойнт | Назначение |
+|---|---|---|
+| GET | `/api/v1/devices` | Список устройств |
+| GET | `/api/v1/devices/{deviceId}` | Информация об устройстве |
+| PATCH | `/api/v1/devices/{deviceId}/status` | Обновление состояния устройства |
+| POST | `/api/v1/devices/{deviceId}/heating` | Команда управления отоплением |
+
+**Temperature Telemetry Service (OpenAPI)**
+
+- [temperature-telemetry-openapi.yaml](schemas/api/temperature-telemetry-openapi.yaml)
+
+| Метод | Эндпойнт | Назначение |
+|---|---|---|
+| GET | `/api/v1/temperature/{deviceId}` | Актуальное показание температуры |
+
+**Доменные события (AsyncAPI)**
+
+- [domain-events-asyncapi.yaml](schemas/api/domain-events-asyncapi.yaml)
+
+| Канал | События | Publisher | Subscriber |
+|---|---|---|---|
+| `device.events` | DeviceCreated, DeviceUpdated, DeviceDeleted | Device Management Service | Temperature Telemetry Service |
+
+Спецификации можно открыть в [Swagger Editor](https://editor.swagger.io/) (OpenAPI) и [AsyncAPI Studio](https://studio.asyncapi.com/) (AsyncAPI).
 
 # Задание 5. Работа с docker и docker-compose
 
-Перейдите в apps.
+Реализация в каталоге [`apps/`](apps/).
 
-Там находится приложение-монолит для работы с датчиками температуры. В README.md описано как запустить решение.
+- **temperature-api** (Go, Gin) — [`apps/temperature-api/`](apps/temperature-api/): `GET /temperature?location=`, `GET /temperature/{id}`, порт **8081**
+- **docker-compose** — [`apps/docker-compose.yml`](apps/docker-compose.yml): postgres + temperature-api + smart_home
+- **PostgreSQL** — init-скрипт [`apps/smart_home/init.sql`](apps/smart_home/init.sql)
 
-Вам нужно:
+Запуск:
 
-1) сделать простое приложение temperature-api на любом удобном для вас языке программирования, которое при запросе /temperature?location= будет отдавать рандомное значение температуры.
-
-Locations - название комнаты, sensorId - идентификатор названия комнаты
-
-```
-	// If no location is provided, use a default based on sensor ID
-	if location == "" {
-		switch sensorID {
-		case "1":
-			location = "Living Room"
-		case "2":
-			location = "Bedroom"
-		case "3":
-			location = "Kitchen"
-		default:
-			location = "Unknown"
-		}
-	}
-
-	// If no sensor ID is provided, generate one based on location
-	if sensorID == "" {
-		switch location {
-		case "Living Room":
-			sensorID = "1"
-		case "Bedroom":
-			sensorID = "2"
-		case "Kitchen":
-			sensorID = "3"
-		default:
-			sensorID = "0"
-		}
-	}
+```bash
+cd apps && ./init.sh
+# или: docker-compose up --build -d
 ```
 
-2) Приложение следует упаковать в Docker и добавить в docker-compose. Порт по умолчанию должен быть 8081
-
-3) Кроме того для smart_home приложения требуется база данных - добавьте в docker-compose файл настройки для запуска postgres с указанием скрипта инициализации ./smart_home/init.sql
-
-Для проверки можно использовать Postman коллекцию smarthome-api.postman_collection.json и вызвать:
-
-- Create Sensor
-- Get All Sensors
-
-Должно при каждом вызове отображаться разное значение температуры
-
-Ревьюер будет проверять точно так же.
+Проверка: Postman-коллекция `smarthome-api.postman_collection.json` — **Create Sensor**, **Get All Sensors** (значение `value` меняется при каждом запросе).
 
 
 # **Задание 6. Разработка MVP**

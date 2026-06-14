@@ -1,0 +1,34 @@
+@startuml
+title Компоненты: Temperature Telemetry Service
+
+top to bottom direction
+
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+Container(gateway, "API Gateway", "Spring Cloud Gateway", "Маршрутизация запросов")
+Container(device_svc, "Device Management Service", "Spring Boot, Kotlin", "Метаданные датчиков")
+ContainerDb(telemetry_db, "Telemetry DB", "MongoDB", "Показания и история")
+ContainerQueue(broker, "Message Broker", "RabbitMQ", "Доменные события")
+System_Ext(temperature_api, "Temperature API", "Внешний источник температуры")
+
+Container_Boundary(telemetry_svc, "Temperature Telemetry Service (Spring Boot, Kotlin)") {
+    Component(api, "TemperatureController", "Spring Web, @RestController", "HTTP-эндпоинты: /temperature, /temperature/{sensorId}")
+    Component(query_service, "TemperatureQueryService", "Spring @Service", "Read-through cache: кэш → miss → collector → save")
+    Component(collector, "TelemetryCollector", "Spring @Service, WebClient", "Запрос актуальных показаний из внешнего Temperature API")
+    Component(telemetry_repo, "TelemetryRepository", "Spring Data MongoDB", "Чтение и запись телеметрии, история измерений")
+    Component(device_client, "DeviceManagementClient", "OpenFeign", "REST-клиент к Device Management: id, location")
+    Component(event_consumer, "SensorEventListener", "Spring AMQP, @RabbitListener", "Обработка событий SensorCreated / Updated / Deleted")
+}
+
+Rel(gateway, api, "REST/JSON", "")
+Rel(api, query_service, "Запрос показаний", "")
+Rel(query_service, telemetry_repo, "Чтение/запись кэша", "")
+Rel(query_service, collector, "Cache miss — запрос свежих данных", "")
+Rel(collector, temperature_api, "HTTP / WebClient", "")
+Rel(api, device_client, "Получение location по sensorId", "")
+Rel(device_client, device_svc, "REST/JSON", "")
+Rel(telemetry_repo, telemetry_db, "Spring Data MongoDB", "")
+Rel(event_consumer, broker, "AMQP subscribe", "")
+Rel(event_consumer, telemetry_repo, "Инвалидация кэша / очистка данных", "")
+
+@enduml

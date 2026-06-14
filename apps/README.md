@@ -4,6 +4,14 @@
 
 - Docker and Docker Compose
 
+## Services
+
+| Сервис | Порт | Описание |
+|---|---|---|
+| `app` (smart_home) | 8080 | Монолит: CRUD датчиков, обогащение температурой |
+| `temperature-api` | 8081 | Имитация внешнего датчика, случайная температура |
+| `postgres` | 5432 | БД `smarthome`, инициализация из `smart_home/init.sql` |
+
 ## Getting Started
 
 ### Option 1: Using Docker Compose (Recommended)

@@ -1,0 +1,43 @@
+@startuml
+title Диаграмма контейнеров «Тёплый дом» (To-Be)
+
+top to bottom direction
+
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+Person(user, "Пользователь", "Владелец дома")
+
+System_Boundary(warmhouse, "Экосистема «Тёплый дом»") {
+    Container(gateway, "API Gateway", "Spring Cloud Gateway", "Единая точка входа, маршрутизация и агрегация запросов")
+
+    Container(device_svc, "Device Management Service", "Spring Boot, Kotlin", "CRUD датчиков, управление отоплением, отправка команд на устройства")
+    ContainerDb(device_db, "Device DB", "PostgreSQL", "Метаданные устройств: id, тип, локация, статус")
+
+    Container(telemetry_svc, "Temperature Telemetry Service", "Spring Boot, Kotlin", "Сбор, кэширование и выдача показаний температуры")
+    ContainerDb(telemetry_db, "Telemetry DB", "MongoDB", "Телеметрия: показания, история, кэш по sensorId/location")
+
+    ContainerQueue(broker, "Message Broker", "RabbitMQ", "Асинхронный обмен доменными событиями между сервисами")
+}
+
+System_Ext(sensors, "Датчики и модули управления отоплением", "Физические устройства в домах")
+System_Ext(temperature_api, "Temperature API", "Внешний источник показаний температуры")
+
+Rel(user, gateway, "Управляет отоплением, просматривает температуру", "HTTPS/REST")
+
+Rel(gateway, device_svc, "Запросы управления устройствами", "REST/JSON")
+Rel(gateway, telemetry_svc, "Запросы телеметрии", "REST/JSON")
+Rel(gateway, device_svc, "Агрегация: список датчиков с температурой", "REST/JSON")
+Rel(gateway, telemetry_svc, "Агрегация: показания по sensorId/location", "REST/JSON")
+
+Rel(device_svc, device_db, "Читает и записывает метаданные устройств", "JDBC / Spring Data JPA")
+Rel(telemetry_svc, telemetry_db, "Сохраняет и читает показания", "Spring Data MongoDB")
+
+Rel(device_svc, sensors, "Отправляет команды управления отоплением", "HTTP / WebClient")
+Rel(telemetry_svc, temperature_api, "Запрашивает актуальные показания", "HTTP / WebClient")
+
+Rel(device_svc, broker, "Публикует события: SensorCreated, SensorUpdated, SensorDeleted", "Spring AMQP / RabbitTemplate")
+Rel(telemetry_svc, broker, "Подписывается на события устройств", "Spring AMQP / @RabbitListener")
+
+Rel(telemetry_svc, device_svc, "Запрашивает метаданные датчика (id, location)", "REST/JSON / OpenFeign")
+
+@enduml

@@ -1,0 +1,54 @@
+@startuml
+title Код: получение списка датчиков с актуальной температурой (Spring Boot, Kotlin)
+
+autonumber
+
+actor "Пользователь" as user
+participant "Spring Cloud\nGateway" as gw
+participant "SensorController\n(Device Mgmt)" as device_api
+participant "SensorService" as device_svc
+participant "SensorRepository\n(JPA)" as device_repo
+database "PostgreSQL" as pg
+participant "TemperatureController\n(Telemetry)" as telemetry_api
+participant "TemperatureQueryService" as query_svc
+participant "TelemetryRepository\n(MongoDB)" as telemetry_repo
+participant "TelemetryCollector\n(WebClient)" as collector
+database "MongoDB" as mongo
+participant "Temperature API" as ext_api
+
+user -> gw : GET /api/v1/sensors
+gw -> device_api : GET /internal/sensors
+device_api -> device_svc : findAll()
+device_svc -> device_repo : findAll()
+device_repo -> pg : SELECT * FROM sensors
+pg --> device_repo : rows
+device_repo --> device_svc : List<Sensor>
+device_svc --> device_api : List<Sensor>
+device_api --> gw : [{id, name, type, location, status}, ...]
+
+loop для каждого temperature-датчика
+    gw -> telemetry_api : GET /internal/temperature/{sensorId}
+    telemetry_api -> query_svc : getLatest(sensorId)
+
+    alt кэш актуален (< TTL)
+        query_svc -> telemetry_repo : findBySensorId(sensorId)
+        telemetry_repo -> mongo : findOne({sensorId})
+        mongo --> telemetry_repo : document
+        telemetry_repo --> query_svc : TemperatureReading
+    else cache miss или устарел
+        query_svc -> collector : fetch(sensorId, location)
+        collector -> ext_api : GET /temperature/{sensorId}
+        ext_api --> collector : {value, unit, timestamp, status}
+        collector --> query_svc : TemperatureReading
+        query_svc -> telemetry_repo : save(reading)
+        telemetry_repo -> mongo : upsert({sensorId, value, ...})
+    end
+
+    query_svc --> telemetry_api : TemperatureReading
+    telemetry_api --> gw : TemperatureReading
+end
+
+gw -> gw : merge(device metadata + temperature)
+gw --> user : 200 OK [{id, name, location, value, unit, status, last_updated}]
+
+@enduml
