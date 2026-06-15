@@ -1,0 +1,39 @@
+@startuml
+title Диаграмма контейнеров «Тёплый дом» — MVP (задание 6, Strangler Fig)
+
+top to bottom direction
+
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+Person(user, "Пользователь", "Владелец дома")
+
+System_Boundary(warmhouse, "Экосистема «Тёплый дом» (MVP)") {
+    Container(monolith, "Монолит smart_home", "Go, Gin", "API-фасад :8080. Strangler Fig: делегирует CRUD и телеметрию в микросервисы (USE_MICROSERVICES=true)")
+    ContainerDb(monolith_db, "Monolith DB", "PostgreSQL smarthome", "Legacy-данные: Update/Delete до полной миграции")
+
+    Container(device_svc, "Device Management Service", "Python, FastAPI", "CRUD устройств :8082, публикация доменных событий")
+    ContainerDb(device_db, "Device DB", "PostgreSQL device_management", "Метаданные устройств: id, тип, локация, статус")
+
+    Container(telemetry_svc, "Temperature Telemetry Service", "Java, Spring Boot", "Показания температуры :8083, in-memory кэш")
+    ContainerDb(telemetry_cache, "Telemetry Cache", "In-memory (ConcurrentHashMap)", "Кэш показаний по deviceId")
+
+    ContainerQueue(broker, "Message Broker", "RabbitMQ", "Exchange warmhouse.device.events")
+}
+
+System_Ext(temperature_api, "Temperature API", "Go, имитация внешнего датчика :8081")
+
+Rel(user, monolith, "Create Sensor, Get All Sensors", "HTTPS/REST :8080")
+
+Rel(monolith, device_svc, "CRUD устройств (прокси)", "REST/JSON :8082")
+Rel(monolith, telemetry_svc, "Показания температуры (прокси)", "REST/JSON :8083")
+Rel(monolith, monolith_db, "Update/Delete (ещё не мигрировано)", "pgx / SQL")
+Rel(monolith, temperature_api, "Fallback при недоступности telemetry", "HTTP :8081")
+
+Rel(device_svc, device_db, "Метаданные устройств", "psycopg2 / SQL")
+Rel(device_svc, broker, "DeviceCreated / Updated / Deleted", "pika / AMQP")
+
+Rel(telemetry_svc, telemetry_cache, "Read-through cache", "Java Map")
+Rel(telemetry_svc, temperature_api, "Cache miss — запрос показаний", "RestTemplate / HTTP")
+Rel(telemetry_svc, broker, "Подписка device.#", "Spring AMQP")
+
+@enduml

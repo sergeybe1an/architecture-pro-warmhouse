@@ -26,6 +26,10 @@ fi
 
 echo "All services are up and running!"
 echo "The API is available at http://localhost:8080"
+echo "Microservices:"
+echo "  - Device Management:  http://localhost:8082"
+echo "  - Temperature Telemetry: http://localhost:8083"
+echo "  - RabbitMQ UI: http://localhost:15672 (guest/guest)"
 echo ""
 echo "To view logs, run: docker-compose logs -f"
 echo "To stop the services, run: docker-compose down"

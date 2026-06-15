@@ -1,5 +1,5 @@
 @startuml
-title Диаграмма контейнеров «Тёплый дом» (To-Be)
+title Диаграмма контейнеров «Тёплый дом» — To-Be (целевая архитектура)
 
 top to bottom direction
 

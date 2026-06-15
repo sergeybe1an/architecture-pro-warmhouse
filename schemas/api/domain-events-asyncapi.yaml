@@ -1,0 +1,126 @@
+asyncapi: 2.6.0
+info:
+  title: Warmhouse Domain Events
+  description: |
+    Асинхронный обмен доменными событиями между микросервисами через RabbitMQ.
+    Device Management Service публикует события жизненного цикла устройств;
+    Temperature Telemetry Service подписывается для инвалидации кэша.
+  version: 1.0.0
+
+servers:
+  production:
+    url: amqp://rabbitmq:5672
+    protocol: amqp
+    description: RabbitMQ в docker-compose / Kubernetes
+
+defaultContentType: application/json
+
+channels:
+  device.events:
+    description: |
+      Топик доменных событий устройств.
+      Exchange: warmhouse.device.events (topic).
+      Routing keys: device.created, device.updated, device.deleted.
+    publish:
+      operationId: publishDeviceEvent
+      summary: Публикация события устройства (Device Management Service)
+      message:
+        oneOf:
+          - $ref: '#/components/messages/DeviceCreated'
+          - $ref: '#/components/messages/DeviceUpdated'
+          - $ref: '#/components/messages/DeviceDeleted'
+    subscribe:
+      operationId: consumeDeviceEvent
+      summary: Подписка на события устройств (Temperature Telemetry Service)
+      message:
+        oneOf:
+          - $ref: '#/components/messages/DeviceCreated'
+          - $ref: '#/components/messages/DeviceUpdated'
+          - $ref: '#/components/messages/DeviceDeleted'
+
+components:
+  messages:
+    DeviceCreated:
+      name: DeviceCreated
+      title: Устройство создано
+      summary: Публикуется после успешного создания устройства в PostgreSQL
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/DeviceEvent'
+      examples:
+        - name: temperatureSensorCreated
+          summary: Создан датчик температуры
+          payload:
+            eventType: DeviceCreated
+            deviceId: 3
+            houseId: 1
+            type: temperature
+            location: Kitchen
+            occurredAt: '2026-06-12T10:00:00Z'
+
+    DeviceUpdated:
+      name: DeviceUpdated
+      title: Устройство обновлено
+      summary: Публикуется при изменении статуса или метаданных устройства
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/DeviceEvent'
+      examples:
+        - name: statusChanged
+          summary: Изменён статус устройства
+          payload:
+            eventType: DeviceUpdated
+            deviceId: 2
+            houseId: 1
+            type: heating
+            location: Bedroom
+            status: active
+            occurredAt: '2026-06-12T09:15:00Z'
+
+    DeviceDeleted:
+      name: DeviceDeleted
+      title: Устройство удалено
+      summary: Публикуется после удаления устройства; Telemetry Service очищает кэш
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/DeviceEvent'
+      examples:
+        - name: deviceRemoved
+          summary: Устройство удалено
+          payload:
+            eventType: DeviceDeleted
+            deviceId: 3
+            occurredAt: '2026-06-12T11:30:00Z'
+
+  schemas:
+    DeviceEvent:
+      type: object
+      required: [eventType, deviceId, occurredAt]
+      properties:
+        eventType:
+          type: string
+          enum: [DeviceCreated, DeviceUpdated, DeviceDeleted]
+          example: DeviceCreated
+        deviceId:
+          type: integer
+          format: int64
+          example: 1
+        houseId:
+          type: integer
+          format: int64
+          example: 1
+        type:
+          type: string
+          enum: [temperature, heating]
+          example: temperature
+        location:
+          type: string
+          example: Living Room
+        status:
+          type: string
+          enum: [active, inactive, error]
+          example: active
+        occurredAt:
+          type: string
+          format: date-time
+          example: '2026-06-12T10:00:00Z'

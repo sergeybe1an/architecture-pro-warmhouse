@@ -27,10 +27,23 @@ func main() {
 
 	log.Println("Connected to database successfully")
 
-	// Initialize temperature service
+	// Initialize temperature service (legacy direct call to temperature-api)
 	temperatureAPIURL := getEnv("TEMPERATURE_API_URL", "http://temperature-api:8081")
 	temperatureService := services.NewTemperatureService(temperatureAPIURL)
 	log.Printf("Temperature service initialized with API URL: %s\n", temperatureAPIURL)
+
+	// Microservices integration (Strangler Fig pattern)
+	useMicroservices := getEnv("USE_MICROSERVICES", "false") == "true"
+	var deviceClient *services.DeviceClient
+	var telemetryMSClient *services.TelemetryMSClient
+
+	if useMicroservices {
+		deviceServiceURL := getEnv("DEVICE_SERVICE_URL", "http://device-management:8082")
+		telemetryServiceURL := getEnv("TELEMETRY_SERVICE_URL", "http://temperature-telemetry:8083")
+		deviceClient = services.NewDeviceClient(deviceServiceURL)
+		telemetryMSClient = services.NewTelemetryMSClient(telemetryServiceURL)
+		log.Printf("Microservices mode enabled: device=%s telemetry=%s\n", deviceServiceURL, telemetryServiceURL)
+	}
 
 	// Initialize router
 	router := gin.Default()
@@ -46,7 +59,7 @@ func main() {
 	apiRoutes := router.Group("/api/v1")
 
 	// Register sensor routes
-	sensorHandler := handlers.NewSensorHandler(database, temperatureService)
+	sensorHandler := handlers.NewSensorHandler(database, temperatureService, deviceClient, telemetryMSClient, useMicroservices)
 	sensorHandler.RegisterRoutes(apiRoutes)
 
 	// Start server

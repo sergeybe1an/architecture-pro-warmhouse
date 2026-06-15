@@ -76,19 +76,26 @@
 
 В этом задании вам нужно предоставить только диаграммы в модели C4. Мы не просим вас отдельно описывать получившиеся микросервисы и то, как вы определили взаимодействия между компонентами To-Be системы. Если вы правильно подготовите диаграммы C4, они и так это покажут.
 
+> **To-Be vs MVP:** диаграммы ниже с пометкой *To-Be* описывают **целевую** архитектуру (Kotlin, API Gateway, MongoDB). Реализация MVP (задание 6) — отдельный набор диаграмм с фактическим стеком (Go-фасад, Python, Java).
+
 **Диаграмма контейнеров (Containers)**
 
-[Диаграмма контейнеров «Тёплый дом» (To-Be)](schemas/Containers.puml)
+- [To-Be — целевая архитектура](schemas/Containers.puml)
+- [MVP — текущая реализация (задание 6)](schemas/Containers-MVP.puml)
 
 **Диаграмма компонентов (Components)**
 
-- [Device Management Service](schemas/Components-DeviceManagement.puml)
-- [Temperature Telemetry Service](schemas/Components-TemperatureTelemetry.puml)
+| To-Be (Kotlin) | MVP (реализация) |
+|---|---|
+| [Device Management](schemas/Components-DeviceManagement.puml) | [Device Management (Python)](schemas/Components-DeviceManagement-MVP.puml) |
+| [Temperature Telemetry](schemas/Components-TemperatureTelemetry.puml) | [Temperature Telemetry (Java)](schemas/Components-TemperatureTelemetry-MVP.puml) |
 
 **Диаграмма кода (Code)**
 
-- [Получение списка датчиков с актуальной температурой — sequence](schemas/Code-GetSensorsWithTemperature.puml)
-- [Доменная модель Device Management Service — class](schemas/Code-DeviceManagementClasses.puml)
+| To-Be | MVP |
+|---|---|
+| [Список датчиков с температурой — sequence](schemas/Code-GetSensorsWithTemperature.puml) | [Список датчиков — sequence (MVP)](schemas/Code-GetSensorsWithTemperature-MVP.puml) |
+| [Доменная модель Device Management — class](schemas/Code-DeviceManagementClasses.puml) | [Доменная модель Device Management — class (MVP)](schemas/Code-DeviceManagementClasses-MVP.puml) |
 
 # Задание 3. Разработка ER-диаграммы
 
@@ -178,11 +185,38 @@ cd apps && ./init.sh
 
 # **Задание 6. Разработка MVP**
 
-Необходимо создать новые микросервисы и обеспечить их интеграции с существующим монолитом для плавного перехода к микросервисной архитектуре. 
+Реализация в каталоге [`apps/`](apps/). Паттерн **Strangler Fig** — монолит (Go) остаётся точкой входа и постепенно делегирует функциональность микросервисам.
 
-### **Что нужно сделать**
+### Микросервисы (разные ООП-языки)
 
-1. Создайте новые микросервисы для управления телеметрией и устройствами (с простейшей логикой), которые будут интегрированы с существующим монолитным приложением. Каждый микросервис на своем ООП языке.
-2. Обеспечьте взаимодействие между микросервисами и монолитом (при желании с помощью брокера сообщений), чтобы постепенно перенести функциональность из монолита в микросервисы. 
+| Сервис | Язык | Порт | Ответственность |
+|---|---|---|---|
+| **Device Management** | Python (FastAPI) | 8082 | CRUD устройств, PostgreSQL `device_management`, события в RabbitMQ |
+| **Temperature Telemetry** | Java (Spring Boot) | 8083 | Показания температуры, кэш, запросы к `temperature-api`, подписка на события |
+| **Монолит smart_home** | Go | 8080 | API-фасад, `USE_MICROSERVICES=true` — делегирование в микросервисы |
 
-В результате у вас должны быть созданы Dockerfiles и docker-compose для запуска микросервисов. 
+### Интеграция
+
+- **REST:** монолит → Device Management (`/api/v1/sensors`), монолит → Telemetry (`/api/v1/temperature/{id}`)
+- **RabbitMQ:** Device Management публикует `device.created/updated/deleted` → Telemetry инвалидирует кэш
+- **Постепенная миграция:** Create/Get перенесены в микросервисы; Update/Delete пока в монолитной БД
+
+### Диаграммы C4 (MVP)
+
+Соответствуют фактической реализации в `docker-compose`:
+
+- [Контейнеры MVP](schemas/Containers-MVP.puml)
+- [Компоненты Device Management (Python)](schemas/Components-DeviceManagement-MVP.puml)
+- [Компоненты Temperature Telemetry (Java)](schemas/Components-TemperatureTelemetry-MVP.puml)
+- [Sequence: Get All Sensors (MVP)](schemas/Code-GetSensorsWithTemperature-MVP.puml)
+- [Class: Device Management (Python)](schemas/Code-DeviceManagementClasses-MVP.puml)
+
+### Запуск
+
+```bash
+cd apps && docker-compose up --build -d
+```
+
+Проверка через Postman: **Create Sensor** → **Get All Sensors** (температура через цепочку монолит → telemetry → temperature-api).
+
+RabbitMQ UI: http://localhost:15672 (guest/guest). 

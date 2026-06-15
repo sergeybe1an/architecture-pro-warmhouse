@@ -1,5 +1,5 @@
 @startuml
-title Код: доменная модель Device Management Service (Kotlin)
+title Код: доменная модель Device Management Service — To-Be (Kotlin)
 
 skinparam classAttributeIconSize 0
 

@@ -1,5 +1,5 @@
 @startuml
-title Компоненты: Device Management Service
+title Компоненты: Device Management Service — To-Be (Kotlin)
 
 top to bottom direction
 

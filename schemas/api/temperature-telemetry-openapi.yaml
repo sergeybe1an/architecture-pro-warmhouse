@@ -1,0 +1,155 @@
+openapi: 3.0.3
+info:
+  title: Temperature Telemetry Service API
+  description: |
+    REST API микросервиса телеметрии температуры.
+    Реализует read-through cache: MongoDB → при промахе запрос в Temperature API.
+    Подписывается на доменные события устройств через RabbitMQ.
+  version: 1.0.0
+
+servers:
+  - url: https://api.warmhouse.local/api/v1
+    description: Публичный API через API Gateway
+  - url: http://temperature-telemetry:8080/internal/v1
+    description: Внутренний API для агрегации в Gateway
+
+tags:
+  - name: Temperature
+    description: Показания температуры по устройствам
+
+paths:
+  /temperature/{deviceId}:
+    get:
+      tags: [Temperature]
+      summary: Получить актуальное показание температуры
+      description: |
+        Возвращает последнее показание температуры для устройства.
+        При cache miss запрашивает данные из внешнего Temperature API
+        и сохраняет в MongoDB (сущность TelemetryData).
+      operationId: getLatestTemperature
+      parameters:
+        - name: deviceId
+          in: path
+          required: true
+          description: Идентификатор устройства (FK к Device)
+          schema:
+            type: integer
+            format: int64
+          example: 1
+        - name: location
+          in: query
+          description: Локация устройства (опционально, для запроса во внешний API)
+          schema:
+            type: string
+          example: Living Room
+      responses:
+        '200':
+          description: Показание получено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemperatureReading'
+              examples:
+                fromCache:
+                  summary: Данные из кэша MongoDB
+                  value:
+                    deviceId: 1
+                    value: 22.5
+                    unit: celsius
+                    location: Living Room
+                    status: active
+                    recordedAt: '2026-06-12T09:00:00Z'
+                    source: cache
+                fromExternalApi:
+                  summary: Свежие данные из Temperature API
+                  value:
+                    deviceId: 1
+                    value: 23.1
+                    unit: celsius
+                    location: Living Room
+                    status: active
+                    recordedAt: '2026-06-12T09:05:12Z'
+                    source: temperature-api
+        '404':
+          description: Устройство или показание не найдены
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                deviceNotFound:
+                  value:
+                    code: DEVICE_NOT_FOUND
+                    message: Device metadata not found for id 99
+                noReading:
+                  value:
+                    code: READING_NOT_FOUND
+                    message: No temperature reading available for device 1
+        '502':
+          description: Внешний Temperature API недоступен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                upstreamError:
+                  value:
+                    code: UPSTREAM_UNAVAILABLE
+                    message: Temperature API returned an error
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  schemas:
+    TemperatureReading:
+      type: object
+      required: [deviceId, value, unit, recordedAt, source]
+      properties:
+        deviceId:
+          type: integer
+          format: int64
+          example: 1
+        value:
+          type: number
+          format: double
+          example: 22.5
+        unit:
+          type: string
+          example: celsius
+        location:
+          type: string
+          example: Living Room
+        status:
+          type: string
+          enum: [active, inactive, error]
+          example: active
+        recordedAt:
+          type: string
+          format: date-time
+        source:
+          type: string
+          enum: [cache, temperature-api]
+          description: Источник данных — кэш MongoDB или внешний API
+          example: cache
+
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+
+  responses:
+    InternalError:
+      description: Внутренняя ошибка сервера
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            serverError:
+              value:
+                code: INTERNAL_ERROR
+                message: Unexpected server error

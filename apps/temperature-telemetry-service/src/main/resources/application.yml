@@ -1,0 +1,12 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: temperature-telemetry-service
+  rabbitmq:
+    host: ${RABBITMQ_HOST:rabbitmq}
+    port: 5672
+
+temperature-api:
+  url: ${TEMPERATURE_API_URL:http://temperature-api:8081}

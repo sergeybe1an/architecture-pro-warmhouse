@@ -1,5 +1,5 @@
 @startuml
-title Код: получение списка датчиков с актуальной температурой (Spring Boot, Kotlin)
+title Код: получение списка датчиков с температурой — To-Be (Kotlin, API Gateway)
 
 autonumber
 
