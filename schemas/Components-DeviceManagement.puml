@@ -1,0 +1,33 @@
+@startuml
+title Компоненты: Device Management Service — To-Be (Kotlin)
+
+top to bottom direction
+
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+Container(gateway, "API Gateway", "Spring Cloud Gateway", "Маршрутизация запросов")
+ContainerDb(device_db, "Device DB", "PostgreSQL", "Метаданные устройств")
+ContainerQueue(broker, "Message Broker", "RabbitMQ", "Доменные события")
+System_Ext(sensors, "Датчики и модули управления", "Физические устройства")
+
+Container_Boundary(device_svc, "Device Management Service (Spring Boot, Kotlin)") {
+    Component(api, "SensorController / HeatingController", "Spring Web, @RestController", "HTTP-эндпоинты: /sensors, /sensors/{id}, /heating")
+    Component(device_manager, "SensorService", "Spring @Service", "Бизнес-логика жизненного цикла устройства: создание, обновление, удаление")
+    Component(state_manager, "HeatingService", "Spring @Service", "Управление статусом устройства и состоянием отопления")
+    Component(command_handler, "SensorCommandGateway", "Spring @Service, WebClient", "Формирование и отправка команд на физические устройства")
+    Component(device_repo, "SensorRepository", "Spring Data JPA", "Доступ к данным устройств в PostgreSQL")
+    Component(event_publisher, "DomainEventPublisher", "Spring @Service, RabbitTemplate", "Публикация доменных событий после commit транзакции")
+}
+
+Rel(gateway, api, "REST/JSON", "")
+Rel(api, device_manager, "Делегирует CRUD-операции", "")
+Rel(api, state_manager, "Запросы управления отоплением", "")
+Rel(device_manager, device_repo, "Читает и записывает устройства", "")
+Rel(state_manager, device_repo, "Обновляет статус устройства", "")
+Rel(state_manager, command_handler, "Инициирует команду", "")
+Rel(command_handler, sensors, "HTTP-команды включения/выключения", "")
+Rel(device_manager, event_publisher, "SensorCreated / Updated / Deleted", "")
+Rel(event_publisher, broker, "AMQP", "")
+Rel(device_repo, device_db, "JPA / SQL", "")
+
+@enduml

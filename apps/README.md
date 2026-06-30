@@ -4,6 +4,32 @@
 
 - Docker and Docker Compose
 
+## Services
+
+| Сервис | Язык | Порт | Описание |
+|---|---|---|---|
+| `app` (smart_home) | Go | 8080 | Монолит-фасад (Strangler Fig), проксирует в микросервисы |
+| `device-management` | Python (FastAPI) | 8082 | CRUD устройств, PostgreSQL, публикация событий |
+| `temperature-telemetry` | Java (Spring Boot) | 8083 | Телеметрия, кэш, подписка на RabbitMQ |
+| `temperature-api` | Go | 8081 | Имитация внешнего датчика |
+| `postgres` | — | 5432 | БД `smarthome` (монолит) + `device_management` (микросервис) |
+| `rabbitmq` | — | 5672 / 15672 | Брокер доменных событий |
+
+### Архитектура MVP (Strangler Fig)
+
+```
+Клиент → Монолит (Go) :8080
+           ├─ REST → Device Management (Python) :8082 → PostgreSQL
+           ├─ REST → Temperature Telemetry (Java) :8083 → temperature-api
+           └─ fallback → temperature-api :8081
+
+Device Management ──RabbitMQ──► Temperature Telemetry
+  (device.created / updated / deleted)   (инвалидация кэша)
+```
+
+Монолит при `USE_MICROSERVICES=true` делегирует Create/Get Sensors в микросервисы.
+Операции Update/Delete пока остаются в монолитной БД (постепенная миграция).
+
 ## Getting Started
 
 ### Option 1: Using Docker Compose (Recommended)

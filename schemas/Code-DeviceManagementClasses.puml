@@ -1,0 +1,81 @@
+@startuml
+title Код: доменная модель Device Management Service — To-Be (Kotlin)
+
+skinparam classAttributeIconSize 0
+
+class Sensor {
+  +id: Long
+  +name: String
+  +type: SensorType
+  +location: String
+  +status: String
+  +createdAt: Instant
+}
+
+class SensorCreateDto {
+  +name: String
+  +type: SensorType
+  +location: String
+}
+
+class HeatingCommand {
+  +sensorId: Long
+  +action: HeatingAction
+  +issuedAt: Instant
+}
+
+enum SensorType {
+  TEMPERATURE
+  HEATING
+}
+
+enum HeatingAction {
+  ON
+  OFF
+}
+
+class SensorService {
+  +createSensor(dto: SensorCreateDto): Sensor
+  +updateSensor(id: Long, dto: SensorUpdateDto): Sensor
+  +deleteSensor(id: Long): Unit
+}
+
+class HeatingService {
+  +setHeatingState(sensorId: Long, action: HeatingAction): Unit
+  +getStatus(sensorId: Long): String
+}
+
+class SensorCommandGateway {
+  +sendCommand(cmd: HeatingCommand): Unit
+}
+
+interface SensorRepository {
+  +findAll(): List<Sensor>
+  +findById(id: Long): Optional<Sensor>
+  +save(sensor: Sensor): Sensor
+  +deleteById(id: Long): Unit
+}
+
+class DomainEventPublisher {
+  +publish(event: DomainEvent): Unit
+}
+
+abstract class DomainEvent {
+  +eventType: String
+  +sensorId: Long
+  +occurredAt: Instant
+}
+
+class SensorCreatedEvent extends DomainEvent
+class SensorUpdatedEvent extends DomainEvent
+class SensorDeletedEvent extends DomainEvent
+
+SensorService --> SensorRepository : uses
+SensorService --> DomainEventPublisher : publishes
+HeatingService --> SensorRepository : uses
+HeatingService --> SensorCommandGateway : uses
+SensorCommandGateway ..> HeatingCommand : sends
+SensorService ..> Sensor : manages
+DomainEventPublisher ..> DomainEvent : publishes
+
+@enduml

@@ -1,0 +1,91 @@
+@startuml
+title ER-диаграмма экосистемы «Тёплый дом»
+
+hide circle
+skinparam linetype ortho
+skinparam shadowing false
+
+' --- Device Management Service (PostgreSQL) ---
+
+entity "User" as user {
+  * id : BIGINT <<PK>>
+  --
+  * email : VARCHAR(255)
+  * full_name : VARCHAR(100)
+  * password_hash : VARCHAR(255)
+  created_at : TIMESTAMPTZ
+}
+
+entity "House" as house {
+  * id : BIGINT <<PK>>
+  --
+  * user_id : BIGINT <<FK>>
+  * name : VARCHAR(100)
+  address : VARCHAR(255)
+  created_at : TIMESTAMPTZ
+}
+
+entity "DeviceType" as device_type {
+  * id : BIGINT <<PK>>
+  --
+  * code : VARCHAR(50)
+  * name : VARCHAR(100)
+  unit : VARCHAR(20)
+}
+
+entity "Module" as module {
+  * id : BIGINT <<PK>>
+  --
+  * house_id : BIGINT <<FK>>
+  * serial_number : VARCHAR(100)
+  model : VARCHAR(100)
+  * status : VARCHAR(20)
+  created_at : TIMESTAMPTZ
+}
+
+entity "Device" as device {
+  * id : BIGINT <<PK>>
+  --
+  * type_id : BIGINT <<FK>>
+  * house_id : BIGINT <<FK>>
+  module_id : BIGINT <<FK>>
+  * name : VARCHAR(100)
+  serial_number : VARCHAR(100)
+  * location : VARCHAR(100)
+  * status : VARCHAR(20)
+  created_at : TIMESTAMPTZ
+  updated_at : TIMESTAMPTZ
+}
+
+' --- Temperature Telemetry Service (MongoDB) ---
+
+entity "TelemetryData" as telemetry {
+  * id : ObjectId <<PK>>
+  --
+  * device_id : BIGINT <<FK>>
+  * value : DOUBLE
+  * unit : VARCHAR(20)
+  * recorded_at : TIMESTAMPTZ
+  source : VARCHAR(50)
+}
+
+' --- Связи ---
+
+user ||--o{ house : "владеет"
+house ||--o{ device : "содержит"
+house ||--o{ module : "оснащён"
+device_type ||--o{ device : "классифицирует"
+module ||--o{ device : "управляет"
+device ||--o{ telemetry : "генерирует"
+
+note right of user
+  **Device Management Service**
+  PostgreSQL
+end note
+
+note right of telemetry
+  **Temperature Telemetry Service**
+  MongoDB
+end note
+
+@enduml

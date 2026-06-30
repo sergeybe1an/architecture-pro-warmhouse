@@ -1,6 +1,4 @@
-# Project_template
-
-Это шаблон для решения проектной работы. Структура этого файла повторяет структуру заданий. Заполняйте его по мере работы над решением.
+# Warmhouse
 
 # Задание 1. Анализ и планирование
 
@@ -8,147 +6,217 @@
 
 Чтобы составить документ с описанием текущей архитектуры приложения, можно часть информации взять из описания компании и условия задания. Это нормально.
 
-</aside
+</aside>
 
 ### 1. Описание функциональности монолитного приложения
 
-**Управление отоплением:**
+**Управление устройствами и отоплением:**
 
-- Пользователи могут…
-- Система поддерживает…
-- …
+- Пользователи могут создавать, обновлять и удалять датчики, привязывать их к локациям.
+- Удалённое включение и выключение отопления — целевая функциональность домена; в текущем монолите не реализовано.
 
 **Мониторинг температуры:**
 
-- Пользователи могут…
-- Система поддерживает…
-- …
+- Пользователи получают данные о температуре в разных локациях через внешний `temperature-api`.
+- При запросе списка или карточки датчика монолит обогащает показания температуры данными из `temperature-api` по идентификатору или локации датчика.
+- Клиенты взаимодействуют с системой через REST API (отдельного веб-интерфейса в монолите нет).
 
 ### 2. Анализ архитектуры монолитного приложения
 
-Перечислите здесь основные особенности текущего приложения: какой язык программирования используется, какая база данных, как организовано взаимодействие между компонентами и так далее.
+- Язык программирования: Go
+- База данных: PostgreSQL
+- Архитектура: монолитная; обработка запросов, бизнес-логика и работа с данными находятся в одном приложении `smart_home`.
+- Взаимодействие: синхронное HTTP между клиентом и монолитом; при чтении температуры — синхронные вызовы внешнего `temperature-api`.
+- Масштабируемость: ограничена, так как монолит сложно масштабировать по частям.
+- Развёртывание: требует остановки всего приложения.
 
 ### 3. Определение доменов и границы контекстов
 
-Опишите здесь домены, которые вы выделили.
+На [диаграмме контекста (C4)](schemas/Context.puml) система «Тёплый дом» представлена как единый монолит, но внутри него выделяются два bounded context с разными ответственностями и внешними связями.
 
-### **4. Проблемы монолитного решения**
+**Домен «Управление устройствами» (Device Management)**
 
-- …
-- …
-- …
+- **На диаграмме:** ядро монолита «Тёплый дом»; взаимодействие с **Пользователем** (управление отоплением) и с внешней системой **«Датчики и модули управления отоплением»** (отправка команд по HTTP).
+- **Ответственность:** учёт устройств умного дома — регистрация, изменение и удаление датчиков, привязка к локации, управление статусом. В целевом виде — удалённое включение и выключение отопления.
+- **Данные:** метаданные устройства (идентификатор, тип, локация, статус), команды управления.
+- **Граница контекста:** всё, что относится к жизненному циклу датчика и управлению отоплением, включая исходящие команды к физическим устройствам.
 
-Если вы считаете, что текущее решение не вызывает проблем, аргументируйте свою позицию.
+**Домен «Мониторинг температуры» (Temperature Telemetry)**
+
+- **На диаграмме:** та же система-монолит; взаимодействие с **Пользователем** (просмотр температуры) и с внешней системой **Temperature API** (запрос показаний по HTTP).
+- **Ответственность:** получение и представление актуальных показаний температуры по датчикам и локациям.
+- **Данные:** значение температуры, единица измерения, метка времени, статус датчика — агрегируются из внешнего API, а не хранятся как первичный источник в монолите.
+- **Граница контекста:** всё, что связано с чтением и обогащением ответов телеметрией; не включает CRUD-операции над устройствами.
+
+**Связь контекстов и актёров**
+
+| Элемент диаграммы | Device Management | Temperature Telemetry |
+|---|---|---|
+| Пользователь | Управляет отоплением (HTTPS/REST) | Просматривает температуру (HTTPS/REST) |
+| Монолит «Тёплый дом» | Хранит датчики в PostgreSQL, отдаёт REST API | Обогащает ответы данными из Temperature API |
+| Датчики и модули управления | Команды управления (HTTP) | — |
+| Temperature API | — | Запрос показаний (HTTP) |
+
+Контекст телеметрии использует идентификатор и локацию датчика из контекста устройств: при запросе списка или карточки датчика монолит сначала читает метаданные из БД, затем запрашивает температуру во внешнем API.
+
+**Реализация в монолите (As-Is):** оба контекста реализованы в одном приложении `smart_home` (Go + PostgreSQL) без явного разделения модулей — граница проектная, зафиксирована для последующего выделения в отдельные микросервисы. На диаграмме контекста это отражено одним блоком «Монолитное приложение «Тёплый дом»» с двумя исходящими интеграциями к разным внешним системам.
+
+### 4. Проблемы монолитного решения
+
+- Смешение контекстов Device Management и Temperature Telemetry в одном коде.
+- Жёсткая связь с внешним `temperature-api` внутри обработчиков датчиков.
+- Нет изоляции между управлением устройствами и телеметрией.
+- Развёртывается целиком: нельзя обновить или масштабировать части системы отдельно.
 
 ### 5. Визуализация контекста системы — диаграмма С4
 
-Добавьте сюда диаграмму контекста в модели C4.
-
-Чтобы добавить ссылку в файл Readme.md, нужно использовать синтаксис Markdown. Это делают так:
-
-```markdown
-[Текст ссылки](URL)
-```
-
-Замените `Текст ссылки` текстом, который хотите использовать для ссылки. Вместо `URL` вставьте адрес, на который должна вести ссылка. Например:
-
-```markdown
-[Посетите Яндекс](https://ya.ru/)
-```
+[Диаграмма контекста Warmhouse (C4)](schemas/Context.puml)
 
 # Задание 2. Проектирование микросервисной архитектуры
 
 В этом задании вам нужно предоставить только диаграммы в модели C4. Мы не просим вас отдельно описывать получившиеся микросервисы и то, как вы определили взаимодействия между компонентами To-Be системы. Если вы правильно подготовите диаграммы C4, они и так это покажут.
 
+> **To-Be vs MVP:** диаграммы ниже с пометкой *To-Be* описывают **целевую** архитектуру (Kotlin, API Gateway, MongoDB). Реализация MVP (задание 6) — отдельный набор диаграмм с фактическим стеком (Go-фасад, Python, Java).
+
 **Диаграмма контейнеров (Containers)**
 
-Добавьте диаграмму.
+- [To-Be — целевая архитектура](schemas/Containers.puml)
+- [MVP — текущая реализация (задание 6)](schemas/Containers-MVP.puml)
 
 **Диаграмма компонентов (Components)**
 
-Добавьте диаграмму для каждого из выделенных микросервисов.
+| To-Be (Kotlin) | MVP (реализация) |
+|---|---|
+| [Device Management](schemas/Components-DeviceManagement.puml) | [Device Management (Python)](schemas/Components-DeviceManagement-MVP.puml) |
+| [Temperature Telemetry](schemas/Components-TemperatureTelemetry.puml) | [Temperature Telemetry (Java)](schemas/Components-TemperatureTelemetry-MVP.puml) |
 
 **Диаграмма кода (Code)**
 
-Добавьте одну диаграмму или несколько.
+| To-Be | MVP |
+|---|---|
+| [Список датчиков с температурой — sequence](schemas/Code-GetSensorsWithTemperature.puml) | [Список датчиков — sequence (MVP)](schemas/Code-GetSensorsWithTemperature-MVP.puml) |
+| [Доменная модель Device Management — class](schemas/Code-DeviceManagementClasses.puml) | [Доменная модель Device Management — class (MVP)](schemas/Code-DeviceManagementClasses-MVP.puml) |
 
 # Задание 3. Разработка ER-диаграммы
 
-Добавьте сюда ER-диаграмму. Она должна отражать ключевые сущности системы, их атрибуты и тип связей между ними.
+[ER-диаграмма экосистемы «Тёплый дом»](schemas/ER-Diagram.puml)
+
+### Сущности и атрибуты
+
+| Сущность | Ключевые атрибуты | Сервис / БД |
+|---|---|---|
+| **User** | id, email, full_name, password_hash, created_at | Device Management / PostgreSQL |
+| **House** | id, user_id (FK), name, address, created_at | Device Management / PostgreSQL |
+| **DeviceType** | id, code, name, unit | Device Management / PostgreSQL |
+| **Module** | id, house_id (FK), serial_number, model, status, created_at | Device Management / PostgreSQL |
+| **Device** | id, type_id (FK), house_id (FK), module_id (FK), name, serial_number, location, status, created_at, updated_at | Device Management / PostgreSQL |
+| **TelemetryData** | id, device_id (FK), value, unit, recorded_at, source | Temperature Telemetry / MongoDB |
+
+### Связи
+
+| Связь | Тип | Описание |
+|---|---|---|
+| User — House | 1:N | Один пользователь может владеть несколькими домами; каждый дом принадлежит одному пользователю |
+| House — Device | 1:N | Один дом содержит несколько устройств; каждое устройство привязано к одному дому |
+| House — Module | 1:N | Один дом может иметь несколько модулей управления; каждый модуль установлен в одном доме |
+| DeviceType — Device | 1:N | Один тип (температура, отопление) может применяться к многим устройствам |
+| Module — Device | 1:N | Один модуль управления может обслуживать несколько устройств; связь опциональна (module_id nullable) |
+| Device — TelemetryData | 1:N | Одно устройство генерирует множество записей телеметрии |
 
 # Задание 4. Создание и документирование API
 
 ### 1. Тип API
 
-Укажите, какой тип API вы будете использовать для взаимодействия микросервисов. Объясните своё решение.
+| Взаимодействие | Тип API | Обоснование |
+|---|---|---|
+| Пользователь → API Gateway → микросервисы | **REST (OpenAPI)** | Синхронные запросы: клиенту нужен немедленный ответ (список устройств, показание температуры, команда отопления) |
+| Telemetry Service → Device Management | **REST (OpenAPI)** | Синхронный запрос метаданных устройства (id, location) при cache miss |
+| Device Management → Temperature Telemetry | **REST (OpenAPI)** | Синхронная агрегация показаний в API Gateway |
+| Device Management → Temperature Telemetry | **AsyncAPI (RabbitMQ)** | Асинхронные доменные события (DeviceCreated / Updated / Deleted); подписчику не нужен немедленный ответ, достаточно eventual consistency для инвалидации кэша |
 
 ### 2. Документация API
 
-Здесь приложите ссылки на документацию API для микросервисов, которые вы спроектировали в первой части проектной работы. Для документирования используйте Swagger/OpenAPI или AsyncAPI.
+**Device Management Service (OpenAPI)**
+
+- [device-management-openapi.yaml](schemas/api/device-management-openapi.yaml)
+
+| Метод | Эндпойнт | Назначение |
+|---|---|---|
+| GET | `/api/v1/devices` | Список устройств |
+| GET | `/api/v1/devices/{deviceId}` | Информация об устройстве |
+| PATCH | `/api/v1/devices/{deviceId}/status` | Обновление состояния устройства |
+| POST | `/api/v1/devices/{deviceId}/heating` | Команда управления отоплением |
+
+**Temperature Telemetry Service (OpenAPI)**
+
+- [temperature-telemetry-openapi.yaml](schemas/api/temperature-telemetry-openapi.yaml)
+
+| Метод | Эндпойнт | Назначение |
+|---|---|---|
+| GET | `/api/v1/temperature/{deviceId}` | Актуальное показание температуры |
+
+**Доменные события (AsyncAPI)**
+
+- [domain-events-asyncapi.yaml](schemas/api/domain-events-asyncapi.yaml)
+
+| Канал | События | Publisher | Subscriber |
+|---|---|---|---|
+| `device.events` | DeviceCreated, DeviceUpdated, DeviceDeleted | Device Management Service | Temperature Telemetry Service |
+
+Спецификации можно открыть в [Swagger Editor](https://editor.swagger.io/) (OpenAPI) и [AsyncAPI Studio](https://studio.asyncapi.com/) (AsyncAPI).
 
 # Задание 5. Работа с docker и docker-compose
 
-Перейдите в apps.
+Реализация в каталоге [`apps/`](apps/).
 
-Там находится приложение-монолит для работы с датчиками температуры. В README.md описано как запустить решение.
+- **temperature-api** (Go, Gin) — [`apps/temperature-api/`](apps/temperature-api/): `GET /temperature?location=`, `GET /temperature/{id}`, порт **8081**
+- **docker-compose** — [`apps/docker-compose.yml`](apps/docker-compose.yml): postgres + temperature-api + smart_home
+- **PostgreSQL** — init-скрипт [`apps/smart_home/init.sql`](apps/smart_home/init.sql)
 
-Вам нужно:
+Запуск:
 
-1) сделать простое приложение temperature-api на любом удобном для вас языке программирования, которое при запросе /temperature?location= будет отдавать рандомное значение температуры.
-
-Locations - название комнаты, sensorId - идентификатор названия комнаты
-
-```
-	// If no location is provided, use a default based on sensor ID
-	if location == "" {
-		switch sensorID {
-		case "1":
-			location = "Living Room"
-		case "2":
-			location = "Bedroom"
-		case "3":
-			location = "Kitchen"
-		default:
-			location = "Unknown"
-		}
-	}
-
-	// If no sensor ID is provided, generate one based on location
-	if sensorID == "" {
-		switch location {
-		case "Living Room":
-			sensorID = "1"
-		case "Bedroom":
-			sensorID = "2"
-		case "Kitchen":
-			sensorID = "3"
-		default:
-			sensorID = "0"
-		}
-	}
+```bash
+cd apps && ./init.sh
+# или: docker-compose up --build -d
 ```
 
-2) Приложение следует упаковать в Docker и добавить в docker-compose. Порт по умолчанию должен быть 8081
-
-3) Кроме того для smart_home приложения требуется база данных - добавьте в docker-compose файл настройки для запуска postgres с указанием скрипта инициализации ./smart_home/init.sql
-
-Для проверки можно использовать Postman коллекцию smarthome-api.postman_collection.json и вызвать:
-
-- Create Sensor
-- Get All Sensors
-
-Должно при каждом вызове отображаться разное значение температуры
-
-Ревьюер будет проверять точно так же.
+Проверка: Postman-коллекция `smarthome-api.postman_collection.json` — **Create Sensor**, **Get All Sensors** (значение `value` меняется при каждом запросе).
 
 
 # **Задание 6. Разработка MVP**
 
-Необходимо создать новые микросервисы и обеспечить их интеграции с существующим монолитом для плавного перехода к микросервисной архитектуре. 
+Реализация в каталоге [`apps/`](apps/). Паттерн **Strangler Fig** — монолит (Go) остаётся точкой входа и постепенно делегирует функциональность микросервисам.
 
-### **Что нужно сделать**
+### Микросервисы (разные ООП-языки)
 
-1. Создайте новые микросервисы для управления телеметрией и устройствами (с простейшей логикой), которые будут интегрированы с существующим монолитным приложением. Каждый микросервис на своем ООП языке.
-2. Обеспечьте взаимодействие между микросервисами и монолитом (при желании с помощью брокера сообщений), чтобы постепенно перенести функциональность из монолита в микросервисы. 
+| Сервис | Язык | Порт | Ответственность |
+|---|---|---|---|
+| **Device Management** | Python (FastAPI) | 8082 | CRUD устройств, PostgreSQL `device_management`, события в RabbitMQ |
+| **Temperature Telemetry** | Java (Spring Boot) | 8083 | Показания температуры, кэш, запросы к `temperature-api`, подписка на события |
+| **Монолит smart_home** | Go | 8080 | API-фасад, `USE_MICROSERVICES=true` — делегирование в микросервисы |
 
-В результате у вас должны быть созданы Dockerfiles и docker-compose для запуска микросервисов. 
+### Интеграция
+
+- **REST:** монолит → Device Management (`/api/v1/sensors`), монолит → Telemetry (`/api/v1/temperature/{id}`)
+- **RabbitMQ:** Device Management публикует `device.created/updated/deleted` → Telemetry инвалидирует кэш
+- **Постепенная миграция:** Create/Get перенесены в микросервисы; Update/Delete пока в монолитной БД
+
+### Диаграммы C4 (MVP)
+
+Соответствуют фактической реализации в `docker-compose`:
+
+- [Контейнеры MVP](schemas/Containers-MVP.puml)
+- [Компоненты Device Management (Python)](schemas/Components-DeviceManagement-MVP.puml)
+- [Компоненты Temperature Telemetry (Java)](schemas/Components-TemperatureTelemetry-MVP.puml)
+- [Sequence: Get All Sensors (MVP)](schemas/Code-GetSensorsWithTemperature-MVP.puml)
+- [Class: Device Management (Python)](schemas/Code-DeviceManagementClasses-MVP.puml)
+
+### Запуск
+
+```bash
+cd apps && docker-compose up --build -d
+```
+
+Проверка через Postman: **Create Sensor** → **Get All Sensors** (температура через цепочку монолит → telemetry → temperature-api).
+
+RabbitMQ UI: http://localhost:15672 (guest/guest). 

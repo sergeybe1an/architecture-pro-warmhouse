@@ -1,0 +1,344 @@
+openapi: 3.0.3
+info:
+  title: Device Management Service API
+  description: |
+    REST API микросервиса управления устройствами экосистемы «Тёплый дом».
+    Хранит метаданные устройств (PostgreSQL), управляет состоянием отопления
+    и публикует доменные события в RabbitMQ.
+  version: 1.0.0
+
+servers:
+  - url: https://api.warmhouse.local/api/v1
+    description: Публичный API через API Gateway
+  - url: http://device-management:8080/internal/v1
+    description: Внутренний API для межсервисного взаимодействия (OpenFeign)
+
+tags:
+  - name: Devices
+    description: Операции с устройствами (сущность Device)
+  - name: Heating
+    description: Управление отоплением
+
+paths:
+  /devices:
+    get:
+      tags: [Devices]
+      summary: Получить список устройств
+      description: Возвращает метаданные всех устройств пользователя. API Gateway агрегирует ответ с показаниями температуры из Telemetry Service.
+      operationId: listDevices
+      parameters:
+        - name: houseId
+          in: query
+          description: Фильтр по дому
+          schema:
+            type: integer
+            format: int64
+          example: 1
+        - name: type
+          in: query
+          description: Фильтр по типу устройства
+          schema:
+            type: string
+            enum: [temperature, heating]
+          example: temperature
+      responses:
+        '200':
+          description: Список устройств
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Device'
+              examples:
+                deviceList:
+                  summary: Два датчика в разных комнатах
+                  value:
+                    - id: 1
+                      name: Living Room Sensor
+                      type: temperature
+                      location: Living Room
+                      houseId: 1
+                      status: active
+                      createdAt: '2026-06-01T10:00:00Z'
+                    - id: 2
+                      name: Bedroom Heater
+                      type: heating
+                      location: Bedroom
+                      houseId: 1
+                      status: inactive
+                      createdAt: '2026-06-01T10:05:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /devices/{deviceId}:
+    get:
+      tags: [Devices]
+      summary: Получить информацию об устройстве
+      description: Возвращает метаданные устройства по идентификатору.
+      operationId: getDevice
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      responses:
+        '200':
+          description: Устройство найдено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+              examples:
+                temperatureDevice:
+                  summary: Датчик температуры
+                  value:
+                    id: 1
+                    name: Living Room Sensor
+                    type: temperature
+                    location: Living Room
+                    houseId: 1
+                    moduleId: null
+                    serialNumber: SN-001
+                    status: active
+                    createdAt: '2026-06-01T10:00:00Z'
+                    updatedAt: '2026-06-12T08:30:00Z'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /devices/{deviceId}/status:
+    patch:
+      tags: [Devices]
+      summary: Обновить состояние устройства
+      description: Изменяет операционный статус устройства (active / inactive / error). Публикует событие DeviceUpdated в RabbitMQ.
+      operationId: updateDeviceStatus
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceStatusUpdate'
+            examples:
+              activate:
+                summary: Активация устройства
+                value:
+                  status: active
+      responses:
+        '200':
+          description: Статус обновлён
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+              examples:
+                updated:
+                  value:
+                    id: 2
+                    name: Bedroom Heater
+                    type: heating
+                    location: Bedroom
+                    houseId: 1
+                    status: active
+                    createdAt: '2026-06-01T10:05:00Z'
+                    updatedAt: '2026-06-12T09:15:00Z'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /devices/{deviceId}/heating:
+    post:
+      tags: [Heating]
+      summary: Отправить команду управления отоплением
+      description: |
+        Включает или выключает отопление на устройстве типа heating.
+        Команда передаётся на физический модуль через HTTP (SensorCommandGateway).
+      operationId: sendHeatingCommand
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HeatingCommandRequest'
+            examples:
+              turnOn:
+                summary: Включить отопление
+                value:
+                  action: ON
+              turnOff:
+                summary: Выключить отопление
+                value:
+                  action: OFF
+      responses:
+        '202':
+          description: Команда принята к исполнению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HeatingCommandResponse'
+              examples:
+                accepted:
+                  value:
+                    deviceId: 2
+                    action: ON
+                    status: accepted
+                    issuedAt: '2026-06-12T09:20:00Z'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Устройство не поддерживает управление отоплением
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                wrongType:
+                  value:
+                    code: DEVICE_TYPE_MISMATCH
+                    message: Heating command is only allowed for devices of type heating
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  parameters:
+    DeviceId:
+      name: deviceId
+      in: path
+      required: true
+      description: Уникальный идентификатор устройства
+      schema:
+        type: integer
+        format: int64
+      example: 1
+
+  schemas:
+    Device:
+      type: object
+      required: [id, name, type, location, houseId, status, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 1
+        name:
+          type: string
+          example: Living Room Sensor
+        type:
+          type: string
+          enum: [temperature, heating]
+          example: temperature
+        location:
+          type: string
+          example: Living Room
+        houseId:
+          type: integer
+          format: int64
+          example: 1
+        moduleId:
+          type: integer
+          format: int64
+          nullable: true
+          example: null
+        serialNumber:
+          type: string
+          example: SN-001
+        status:
+          type: string
+          enum: [active, inactive, error]
+          example: active
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    DeviceStatusUpdate:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [active, inactive, error]
+          example: active
+
+    HeatingCommandRequest:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [ON, OFF]
+          example: ON
+
+    HeatingCommandResponse:
+      type: object
+      required: [deviceId, action, status, issuedAt]
+      properties:
+        deviceId:
+          type: integer
+          format: int64
+          example: 2
+        action:
+          type: string
+          enum: [ON, OFF]
+        status:
+          type: string
+          enum: [accepted, rejected]
+          example: accepted
+        issuedAt:
+          type: string
+          format: date-time
+
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: DEVICE_NOT_FOUND
+        message:
+          type: string
+          example: Device with id 99 not found
+
+  responses:
+    BadRequest:
+      description: Некорректный запрос
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            validation:
+              value:
+                code: VALIDATION_ERROR
+                message: Field 'status' must be one of active, inactive, error
+    NotFound:
+      description: Устройство не найдено
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            notFound:
+              value:
+                code: DEVICE_NOT_FOUND
+                message: Device with id 99 not found
+    InternalError:
+      description: Внутренняя ошибка сервера
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            serverError:
+              value:
+                code: INTERNAL_ERROR
+                message: Unexpected server error
